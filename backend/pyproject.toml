@@ -1,0 +1,87 @@
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+# ==============================================================================
+# 1. PACKAGE CONFIGURATION (Native Poetry 1.x Standard)
+# ==============================================================================
+[tool.poetry]
+name = "car-ads-platform"
+version = "0.1.0"
+description = "Enterprise-grade Car Ads Platform (Async Modular Monolith)"
+authors = ["Evgeny Fedorov <EvgenyFedorov@gmail.com>"]
+readme = "README.md"
+packages = [{include = "src"}]
+
+# ==============================================================================
+# 2. MAIN DEPENDENCIES (Production)
+# ==============================================================================
+[tool.poetry.dependencies]
+python = "^3.12"
+
+# --- Core API Framework ---
+fastapi = ">=0.115.0"
+uvicorn = {extras = ["standard"], version = ">=0.30.0"}
+
+# --- Configuration & Validation ---
+pydantic = ">=2.10.0"
+pydantic-settings = ">=2.6.0"
+
+# --- Database (PostgreSQL Async) ---
+sqlalchemy = {extras = ["asyncio"], version = ">=2.0.30"}
+alembic = ">=1.13.1"
+asyncpg = ">=0.30.0"
+
+# --- Auth & Security ---
+PyJWT = ">=2.8.0"
+passlib = {extras = ["bcrypt"], version = ">=1.7.4"}
+bcrypt = "4.0.1"
+
+# --- Async Tasks & Caching ---
+celery = ">=5.4.0"
+redis = ">=5.2.0"
+
+# --- Telegram Bot ---
+aiogram = ">=3.4.1"
+
+# --- AI Integration ---
+openai = ">=1.58.0"
+
+# --- Network I/O & Scraping ---
+httpx = ">=0.28.0"
+beautifulsoup4 = ">=4.12.0"
+tenacity = ">=9.0.0"
+
+# ==============================================================================
+# 3. DEV DEPENDENCIES (Local Development & CI)
+# ==============================================================================
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.0"
+pytest-asyncio = "^0.24.0"
+mypy = "^1.14.0"
+ruff = "^0.9.0"
+
+# ==============================================================================
+# 4. TOOLING CONFIGURATION
+# ==============================================================================
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+warn_return_any = true
+warn_unused_configs = true
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "C4", "SIM"]
+ignore = []

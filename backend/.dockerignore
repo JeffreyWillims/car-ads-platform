@@ -1,0 +1,27 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- Environment & Secrets (CRITICAL) ---
+.env
+.env.*
+!.env.example
+
+# --- Virtual Environments ---
+.venv/
+venv/
+ENV/
+
+# --- IDE Settings (чтобы не мусорить конфигами редактора) ---
+.idea/
+.vscode/
+*.swp
+
+# --- Docker ---
+# Если вдруг docker-compose создаст логи или временные файлы
+docker-log.txt
+
+# --- OS specific ---
+.DS_Store
+Thumbs.db

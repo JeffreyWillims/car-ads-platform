@@ -1,0 +1,167 @@
+version: '3.9'
+
+# ==========================================
+# ⚓ YAML Anchors (DRY Principle)
+# ==========================================
+x-backend-base: &backend-base
+  build:
+    context: ./backend
+    dockerfile: Dockerfile
+    target: runtime
+  # 1. Сначала читаем переменные из файла
+  env_file:
+    - .env
+  # 2. ПЕРЕОПРЕДЕЛЯЕМ критические сетевые настройки
+  # Это гарантирует, что внутри Docker мы всегда идем на 'db',
+  # даже если в .env написано 'localhost'
+  environment:
+    - POSTGRES_HOST=db
+    - REDIS_HOST=redis
+  restart: unless-stopped
+  networks:
+    - internal_network
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+# ==========================================
+# 🛠 Services
+# ==========================================
+services:
+  # --- Infrastructure ---
+  db:
+    image: postgres:16-alpine
+    container_name: car_ads_db
+    restart: unless-stopped
+    env_file: .env
+    # В проде порты закрыты. Для локальной разработки можно открыть:
+    # ports:
+    #   - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: car_ads_redis
+    restart: unless-stopped
+    # Закрываем внешний доступ. Redis доступен только внутри сети.
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - internal_network
+
+  # --- Migrations ---
+  migrator:
+    <<: *backend-base
+    container_name: car_ads_migrator
+    restart: "no"
+    command: alembic upgrade head
+    # Мигратор не имеет healthcheck, он просто должен выполниться
+
+  # --- Application API ---
+  api:
+    <<: *backend-base
+    container_name: car_ads_api
+    ports:
+      - "${API_PORT:-8000}:8000"
+    # workers=2 оптимально для начала. В проде: (2 * CPU) + 1
+    command: uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --workers 2
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # --- Workers ---
+  celery_worker:
+    <<: *backend-base
+    container_name: car_ads_worker
+    command: celery -A src.worker.celery_app worker -l info -c 2
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+
+  celery_beat:
+    <<: *backend-base
+    container_name: car_ads_beat
+    command: celery -A src.worker.celery_app beat -l info
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+
+  telegram_bot:
+    <<: *backend-base
+    container_name: car_ads_bot
+    command: python -m src.bot.main
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+
+  # --- Frontend ---
+  frontend:
+    build:
+      context: ./frontend
+    container_name: car_ads_frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      - api
+    networks:
+      - internal_network
+
+  # ==========================================
+  # 🧰 Utility Container (Toolbox)
+  # ==========================================
+  # Используем это для запуска тестов, линтеров и генерации lock-файлов
+  toolbox:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      # ВАЖНО: Используем 'builder', чтобы был доступен Poetry
+      target: builder
+    container_name: car_ads_toolbox
+    user: root # Временно root, чтобы иметь права на запись в volume хоста
+    volumes:
+      # Монтируем код, чтобы изменения сразу были видны
+      - ./backend:/app
+      # ХИТРОСТЬ: Сохраняем .venv контейнера, чтобы монтирование ./backend не затерло его
+      # Это позволяет Windows не ломать Linux-бинарники внутри
+      - /app/.venv
+    env_file: .env
+    environment:
+      - POSTGRES_HOST=db
+      - REDIS_HOST=redis
+    # Бесконечный цикл, чтобы контейнер не падал и ждал команды
+    command: tail -f /dev/null
+    networks:
+      - internal_network
+
+# ==========================================
+# 💾 Volumes & Networks
+# ==========================================
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  internal_network:
+    driver: bridge
