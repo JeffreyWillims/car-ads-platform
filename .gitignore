@@ -1,0 +1,16 @@
+# .gitignore
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+.env
+.DS_Store
+.idea/
+.vscode/
+dist/
+build/
+*.egg-info/
+postgres_data/
+redis_data/

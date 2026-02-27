@@ -39,7 +39,7 @@ target_metadata = Base.metadata
 
 # Динамическая инъекция URL БД. Скрывает пароли из alembic.ini
 # str() обязателен для совместимости с Pydantic V2 PostgresDsn
-config.set_main_option("sqlalchemy.url", str(settings.DATABASE_URL))
+config.set_main_option("sqlalchemy.url", str(settings.database_url))
 
 
 def run_migrations_offline() -> None:

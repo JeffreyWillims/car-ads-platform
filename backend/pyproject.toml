@@ -10,21 +10,21 @@ name = "car-ads-platform"
 version = "0.1.0"
 description = "Enterprise-grade Car Ads Platform (Async Modular Monolith)"
 authors = ["Evgeny Fedorov <EvgenyFedorov@gmail.com>"]
-readme = "README.md"
-packages = [{include = "src"}]
+package-mode = false
+
 
 # ==============================================================================
 # 2. MAIN DEPENDENCIES (Production)
 # ==============================================================================
 [tool.poetry.dependencies]
-python = "^3.12"
+python = ">=3.12,<3.15"
 
 # --- Core API Framework ---
 fastapi = ">=0.115.0"
 uvicorn = {extras = ["standard"], version = ">=0.30.0"}
 
 # --- Configuration & Validation ---
-pydantic = ">=2.10.0"
+pydantic = {version = "^2.12.5", extras = ["email"]}
 pydantic-settings = ">=2.6.0"
 
 # --- Database (PostgreSQL Async) ---
@@ -42,7 +42,7 @@ celery = ">=5.4.0"
 redis = ">=5.2.0"
 
 # --- Telegram Bot ---
-aiogram = ">=3.4.1"
+aiogram = ">=3.25.0"
 
 # --- AI Integration ---
 openai = ">=1.58.0"
@@ -55,6 +55,7 @@ tenacity = ">=9.0.0"
 # ==============================================================================
 # 3. DEV DEPENDENCIES (Local Development & CI)
 # ==============================================================================
+python-multipart = "^0.0.22"
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.0"
 pytest-asyncio = "^0.24.0"

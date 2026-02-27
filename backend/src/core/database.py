@@ -6,7 +6,7 @@ from src.core.config import settings
 
 # engine configured for Asyncpg
 engine = create_async_engine(
-    settings.DATABASE_URL,  # <--- ИСПРАВЛЕНО НА ЗАГЛАВНЫЕ БУКВЫ
+    settings.database_url,
     echo=False,
     pool_pre_ping=True,
 )
