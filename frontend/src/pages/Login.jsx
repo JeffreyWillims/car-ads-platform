@@ -22,7 +22,7 @@ export default function Login() {
             // In Docker Compose, React will run on the browser and access the API via localhost
             // Note: We use relative path if we set proxy, or absolute if direct
             // Assuming api and frontend are mapped, we fetch to the standard Docker port
-            const response = await fetch('http://localhost:8000/api/login', {
+            const response = await fetch('http://localhost:8000/api/v1/auth/login', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',

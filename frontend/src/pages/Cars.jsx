@@ -19,7 +19,7 @@ export default function Cars() {
         }
 
         try {
-            const response = await fetch('http://localhost:8000/api/cars', {
+            const response = await fetch('http://localhost:8000/api/v1/cars', {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
