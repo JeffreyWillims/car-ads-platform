@@ -1,20 +1,23 @@
-# ==========================================
+# ==============================================================================
 # ⚓ YAML Anchors (DRY Principle)
-# ==========================================
+# ==============================================================================
 x-backend-base: &backend-base
   build:
     context: ./backend
     dockerfile: Dockerfile
     target: runtime
-  # 1. Сначала читаем переменные из файла
   env_file:
     - .env
-  # 2. ПЕРЕОПРЕДЕЛЯЕМ критические сетевые настройки
-  # Это гарантирует, что внутри Docker мы всегда идем на 'db',
-  # даже если в .env написано 'localhost'
   environment:
     - POSTGRES_HOST=db
     - REDIS_HOST=redis
+  # ============================================================================
+  # FIX: Явное добавление хоста в /etc/hosts контейнера
+  # Это работает железобетонно на Linux и Windows
+  # ============================================================================
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+
   restart: unless-stopped
   networks:
     - internal_network
@@ -92,7 +95,7 @@ services:
   celery_worker:
     <<: *backend-base
     container_name: car_ads_worker
-    command: celery -A src.worker.celery_app worker -l info -c 2
+    command: celery -A src.core.celery_app worker -l info -c 2
     depends_on:
       migrator:
         condition: service_completed_successfully
@@ -100,7 +103,7 @@ services:
   celery_beat:
     <<: *backend-base
     container_name: car_ads_beat
-    command: celery -A src.worker.celery_app beat -l info
+    command: celery -A src.core.celery_app beat -l info
     depends_on:
       migrator:
         condition: service_completed_successfully

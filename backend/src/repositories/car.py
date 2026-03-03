@@ -1,49 +1,80 @@
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Any, Sequence
+from sqlalchemy import select, desc, update
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy import select
-
+from sqlalchemy.ext.asyncio import AsyncSession
 from src.models.car import Car
 
 class CarRepository:
     """
-    Паттерн Repository.
-    Изолирует сложные SQL-запросы от бизнес-логики (FastAPI/Celery).
+    Data Access Layer for Car entity.
     """
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def bulk_upsert(self, cars_data: list[dict]) -> None:
-        """
-        Выполняет массовый Upsert (Добавление или Обновление).
-        Time Complexity: O(K * log N), где K - количество новых авто, N - размер БД.
-        """
+    async def upsert_bulk(self, cars_data: list[dict[str, Any]]) -> int:
         if not cars_data:
-            return
+            return 0
 
-        # 1. Формируем базовый INSERT
+        # ВАЖНО: cars_data не должен содержать ключей, которых нет в модели Car!
         stmt = insert(Car).values(cars_data)
 
-        # 2. Исключаем поля, которые не нужно обновлять при конфликте (например, id и created_at)
-        # stmt.excluded содержит данные, которые мы пытались вставить
         update_dict = {
             "price": stmt.excluded.price,
-            "color": stmt.excluded.color,
+            "model": stmt.excluded.model, # Обновляем модель
+            "year": stmt.excluded.year,
             "updated_at": stmt.excluded.updated_at,
-            # Можно добавить другие поля, если скрапер может уточнить их позже
         }
 
-        # 3. Настраиваем логику ON CONFLICT (по уникальному полю 'link')
         upsert_stmt = stmt.on_conflict_do_update(
-            index_elements=['link'], # Наш Unique Constraint
+            index_elements=['link'],
             set_=update_dict
         )
 
-        # 4. Выполняем батч
-        await self.session.execute(upsert_stmt)
+        result = await self.session.execute(upsert_stmt)
+        await self.session.commit()
+        return result.rowcount
+
+    async def get_all(self, limit: int = 100, offset: int = 0) -> Sequence[Car]:
+        query = select(Car).order_by(desc(Car.created_at)).limit(limit).offset(offset)
+        result = await self.session.execute(query)
+        return result.scalars().all()
+
+    async def get_cars_without_description(self, batch_size: int = 5) -> Sequence[Car]:
+        query = (
+            select(Car)
+            .where(Car.ai_description.is_(None))
+            .limit(batch_size)
+        )
+        result = await self.session.execute(query)
+        return result.scalars().all()
+
+    async def update_description(self, car_id: int, description: str) -> None:
+        stmt = (
+            update(Car)
+            .where(Car.id == car_id)
+            .values(ai_description=description)
+        )
+        await self.session.execute(stmt)
         await self.session.commit()
 
-    async def get_all(self, limit: int = 100, offset: int = 0) -> list[Car]:
-        """Получение списка машин для API с пагинацией"""
-        query = select(Car).limit(limit).offset(offset).order_by(Car.created_at.desc())
+
+    async def search_cars(self, filters: Any, limit: int = 5) -> Sequence[Car]:
+        """
+        O(N) Динамическая фильтрация автомобилей на основе AI-запроса.
+        """
+        query = select(Car)
+
+        if filters.brand:
+            query = query.where(Car.brand.ilike(f"%{filters.brand}%"))
+        if filters.model:
+            query = query.where(Car.model.ilike(f"%{filters.model}%"))
+        if filters.min_year:
+            query = query.where(Car.year >= filters.min_year)
+        if filters.max_price:
+            query = query.where(Car.price <= filters.max_price)
+        if filters.color:
+            query = query.where(Car.color.ilike(f"%{filters.color}%"))
+
+        query = query.order_by(desc(Car.created_at)).limit(limit)
         result = await self.session.execute(query)
-        return list(result.scalars().all())
+        return result.scalars().all()
