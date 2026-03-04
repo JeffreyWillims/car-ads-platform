@@ -48,7 +48,7 @@ aiogram = ">=3.25.0"
 openai = ">=1.58.0"
 
 # --- Network I/O & Scraping ---
-httpx = ">=0.28.0"
+httpx = {extras = ["http2"], version = "^0.28.1"}
 beautifulsoup4 = ">=4.12.0"
 tenacity = ">=9.0.0"
 

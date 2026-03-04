@@ -8,11 +8,13 @@ class Car(Base):
     __tablename__ = "cars"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    brand: Mapped[str] = mapped_column(String(50), nullable=False)
-    model: Mapped[str] = mapped_column(String(50), nullable=False)
+    brand: Mapped[str] = mapped_column(String(100), index=True, nullable=False)
+    model: Mapped[str] = mapped_column(String(255), nullable=False)
     year: Mapped[int] = mapped_column(Integer, nullable=False)
     price: Mapped[int] = mapped_column(Integer, nullable=False)
     color: Mapped[str] = mapped_column(String(30), nullable=False)
+    mileage: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
 
     # CRITICAL: This MUST be unique. It's our invariant for the Upsert mechanism.
     link: Mapped[str] = mapped_column(String(500), unique=True, nullable=False)

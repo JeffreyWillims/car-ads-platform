@@ -1,101 +1,82 @@
+# backend/src/worker/tasks.py
 import asyncio
-import logging
-from celery import shared_task
+from celery.utils.log import get_task_logger
 
+# Импортируем конструкторы, но НЕ готовые объекты
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy.pool import NullPool
 
-from src.core.database import AsyncSessionLocal
-from src.services.scraper import CarScraper
+from src.core.celery_app import celery_app
+from src.scraper.engine import CarSensorScraper
 from src.repositories.car import CarRepository
+from src.core.config import settings
 
-# Наш новый AI сервис
-from src.services.ai_generator import generate_car_description
-
-logger = logging.getLogger(__name__)
+logger = get_task_logger(__name__)
 
 
-# ==============================================================================
-# 1. DATA INGESTION (Скрапинг)
-# ==============================================================================
-async def run_scraping_logic():
-    scraper = CarScraper()
-    logger.info("Starting scraper...")
+async def _run_scraping_pipeline():
+    """
+    Полностью изолированный пайплайн.
+    Создает свои собственные соединения с БД, чтобы избежать конфликта Event Loop.
+    """
+    scraper = CarSensorScraper()
+    logger.info("Starting car scraper engine...")
 
-    cars_data = await scraper.run(max_pages=1)
-    logger.info(f"Scraped {len(cars_data)} cars.")
+    # 1. Парсинг
+    cars_data = await scraper.scrape_cars(pages_per_brand=1)
 
     if not cars_data:
-        return "No cars found"
+        logger.warning("No cars scraped. Aborting DB insert.")
+        return "No data"
 
-    async with AsyncSessionLocal() as session:
-        repo = CarRepository(session)
-        count = await repo.upsert_bulk(cars_data)
-        return f"Upserted {count} cars"
+    # =========================================================================
+    # 🛡️ SCOPED ENGINE PATTERN (Критически важно!)
+    # Мы создаем движок с нуля ЗДЕСЬ, а не импортируем его.
+    # Это гарантирует, что он привяжется к ТЕКУЩЕМУ Event Loop'у этой задачи.
+    # =========================================================================
+    local_engine = create_async_engine(
+        settings.database_url,
+        poolclass=NullPool,  # Обязательно для Celery (fork-safe)
+        echo=False
+    )
 
+    LocalSession = async_sessionmaker(
+        bind=local_engine,
+        class_=AsyncSession,
+        expire_on_commit=False
+    )
 
-@shared_task(name="scrape_cars_task")
-def scrape_cars_task():
     try:
-        return asyncio.run(run_scraping_logic())
-    except Exception as e:
-        logger.error(f"Scrape Task failed: {e}")
-        raise e
+        # 2. Работа с БД через локальную сессию
+        async with LocalSession() as session:
+            repo = CarRepository(session)
+            logger.info(f"Upserting {len(cars_data)} cars into PostgreSQL...")
+            await repo.bulk_upsert(cars_data)
+    finally:
+        # 3. Чистка ресурсов (закрываем соединения)
+        await local_engine.dispose()
+
+    logger.info("Pipeline finished successfully.")
+    return f"Upserted {len(cars_data)} cars"
 
 
-# ==============================================================================
-# 2. DATA ENRICHMENT (Локальная Нейросеть Ollama)
-# ==============================================================================
-async def run_ai_enrichment_logic():
+@celery_app.task(name="scrape_cars_task", bind=True, max_retries=3)
+def scrape_cars_task(self):
     """
-    Берет "сырые" машины из базы и прогоняет их через локальную Ollama.
+    Синхронная точка входа. Управляет жизненным циклом Event Loop.
     """
-    logger.info("Starting AI enrichment pipeline...")
+    # Создаем новый чистый цикл событий для этой задачи
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
 
-    async with AsyncSessionLocal() as session:
-        repo = CarRepository(session)
-
-        # Берем партию необработанных авто (например, 5 штук)
-        cars_to_process = await repo.get_cars_without_description(batch_size=5)
-
-        if not cars_to_process:
-            logger.info("No cars require AI enrichment right now.")
-            return "No cars to process"
-
-        processed_count = 0
-        for car in cars_to_process:
-            try:
-                logger.info(f"Generating AI description for: {car.title} (ID: {car.id})")
-
-                # Поскольку в твоей модели Car поля называются title/price/color:
-                # Адаптируем вызов!
-                # P.S. Если функция generate_car_description ожидает brand/model,
-                # просто передай car.title в brand, а остальные заглушками, либо обнови саму функцию.
-                description = await generate_car_description(
-                    brand=car.title,  # Используем title вместо brand
-                    model="",  # пусто
-                    year=car.year,
-                    mileage=0  # Если пробега нет в модели, ставим 0
-                )
-
-                await repo.update_description(car.id, description)
-                processed_count += 1
-                logger.info(f"Successfully enriched car ID: {car.id}")
-
-            except Exception as e:
-                logger.error(f"Failed to generate description for car {car.id}: {e}")
-                # Если одна машина упала, продолжаем обрабатывать остальные из батча
-                continue
-
-        return f"AI Enriched {processed_count} cars"
-
-
-@shared_task(name="enrich_cars_with_ai_task", max_retries=3)
-def enrich_cars_with_ai_task():
-    """
-    Независимая задача. Можно вызывать по расписанию (Celery Beat)
-    каждые 5 минут или ставить в очередь (chain) сразу после скрапинга.
-    """
     try:
-        return asyncio.run(run_ai_enrichment_logic())
-    except Exception as e:
-        logger.error(f"AI Enrichment Task failed: {e}")
-        raise e
+        result = loop.run_until_complete(_run_scraping_pipeline())
+        return result
+    except Exception as exc:
+        logger.error(f"Scraper task failed: {exc}")
+        # Retry через 60 секунд при ошибке
+        raise self.retry(exc=exc, countdown=60)
+    finally:
+        # Корректное завершение всех асинхронных генераторов и закрытие цикла
+        loop.run_until_complete(loop.shutdown_asyncgens())
+        loop.close()
