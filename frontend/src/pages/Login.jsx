@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LogIn } from 'lucide-react';
+import { apiClient } from '../api/axios';
 
 export default function Login() {
     const [email, setEmail] = useState('');
@@ -19,23 +20,12 @@ export default function Login() {
         formData.append('password', password);
 
         try {
-            // In Docker Compose, React will run on the browser and access the API via localhost
-            // Note: We use relative path if we set proxy, or absolute if direct
-            // Assuming api and frontend are mapped, we fetch to the standard Docker port
-            const response = await fetch('http://localhost:8000/api/v1/auth/login', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: formData.toString(),
+            // Используем наш apiClient (не нужно указывать базовый URL)
+            const response = await apiClient.post('/auth/login', formData, {
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
             });
 
-            if (!response.ok) {
-                throw new Error('Invalid credentials');
-            }
-
-            const data = await response.json();
-            localStorage.setItem('token', data.access_token);
+            localStorage.setItem('token', response.data.access_token);
             navigate('/');
         } catch (err) {
             setError('Ошибка авторизации. Проверьте логин и пароль.');
@@ -49,9 +39,7 @@ export default function Login() {
             <div className="header">
                 <h2>Cars Service Control Panel</h2>
             </div>
-
             {error && <div className="error-text">{error}</div>}
-
             <form onSubmit={handleLogin}>
                 <input
                     type="email"
@@ -70,12 +58,7 @@ export default function Login() {
                     required
                 />
                 <button type="submit" className="btn-primary" disabled={loading}>
-                    {loading ? 'Вход...' : (
-                        <>
-                            <LogIn size={20} />
-                            Вход в систему
-                        </>
-                    )}
+                    {loading ? 'Вход...' : <><LogIn size={20} /> Вход в систему</>}
                 </button>
             </form>
         </div>

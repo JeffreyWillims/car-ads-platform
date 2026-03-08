@@ -8,6 +8,8 @@ class CarRead(BaseModel):
     year: int
     price: int
     color: str
+    mileage: int | None = 0
+    image_url: str | None = None
     link: str
     updated_at: datetime
 
