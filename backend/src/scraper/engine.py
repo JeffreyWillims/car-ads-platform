@@ -1,4 +1,3 @@
-# backend/src/scraper/engine.py
 import asyncio
 import logging
 import re
@@ -56,12 +55,10 @@ class CarSensorScraper:
         now = datetime.now(timezone.utc)
 
         async with httpx.AsyncClient(http2=True, follow_redirects=True) as client:
-            # Проходимся по 4 разным маркам автомобилей
             for brand_code, brand_name in self.TARGET_BRANDS.items():
                 logger.info(f"🚗 Starting scraping for brand: {brand_name}")
 
                 for page in range(1, pages_per_brand + 1):
-                    # Динамически меняем URL под бренд
                     url = f"{self.BASE_URL}/usedcar/{brand_code}/index{page}.html"
 
                     try:
@@ -72,13 +69,11 @@ class CarSensorScraper:
 
                     soup = BeautifulSoup(html, "html.parser")
 
-                    # Ищем карточки целиком, чтобы вытащить картинку и текст
                     car_cards = (
+                            soup.select(".cassetteMain") or  # Самый частый класс в 2024
                             soup.select(".casetBoard") or
                             soup.select(".cassette") or
-                            soup.select(".caset") or
-                            soup.select(".list-item") or  # Общий класс списков
-                            soup.select(".property_unit")  # Часто используется в каталогах
+                            soup.select(".caset")
                     )
 
                     if not car_cards:
@@ -89,15 +84,39 @@ class CarSensorScraper:
 
                     for card in car_cards:
                         try:
-                            # 1. Ссылка
-                            link_tag = (
-                                    card.select_one("a[href*='/usedcar/detail/']") or
-                                    card.select_one("h3 a") or
-                                    card.select_one(".casetBoard_carName a")
-                            )
-                            if not link_tag:
+                            # ПОИСК ССЫЛКИ И НАЗВАНИЯ (МОДЕЛИ)
+                            detail_links = card.select("a[href*='/usedcar/detail/']")
+                            if not detail_links:
                                 continue
 
+                            link_tag = None
+                            model = ""
+
+                            # Перебираем все ссылки в карточке. Ищем ту, в которой есть текст (название авто)
+                            for a in detail_links:
+                                text = a.get_text(strip=True)
+                                if text:
+                                    model = text
+                                    link_tag = a
+                                    break
+
+                            # Если текст не нашли, пробуем достать из alt картинки
+                            if not model:
+                                link_tag = detail_links[0]
+                                img = link_tag.select_one("img")
+                                if img and img.get("alt"):
+                                    model = img.get("alt")
+                                else:
+                                    model = "Unknown Model"
+
+                            # Очищаем модель от японского названия бренда
+                            # Например: "トヨタ プリウス 1.8" -> "プリウス 1.8"
+                            model = model.replace(brand_name, "").replace("トヨタ", "").replace("ホンダ", "").replace(
+                                "日産", "").replace("マツダ", "").strip()
+                            if not model:
+                                model = "Unknown Model"
+
+                            # Формируем итоговую ссылку
                             href = link_tag.get("href", "")
                             full_link = self.BASE_URL + href if href.startswith("/") else href
                             clean_link = full_link.split("?")[0]
@@ -105,29 +124,30 @@ class CarSensorScraper:
                             if clean_link in cars_dict:
                                 continue
 
-                            # 2. Картинка (Data Enrichment)
+                            # ПОИСК КАРТИНКИ
                             img_tag = card.select_one("img")
                             image_url = img_tag.get("data-src") or img_tag.get("src") if img_tag else None
+                            if image_url and image_url.startswith("//"):
+                                image_url = "https:" + image_url
 
-                            # 3. Весь текст карточки для Regex поиска
+                            # Весь текст карточки для Regex поиска
                             card_text = card.get_text(separator=" ", strip=True)
 
-                            # 4. Модель
-                            model = link_tag.get_text(strip=True) or "Unknown Model"
-
-                            # 5. Цена
+                            # ПОИСК ЦЕНЫ (Берем максимальную!)
                             price = 0
-                            price_match = re.search(r'(\d+\.?\d*)\s*万円', card_text)
-                            if price_match:
-                                price = int(float(price_match.group(1)) * 10000)
+                            price_matches = re.findall(r'(\d+\.?\d*)\s*万円', card_text)
+                            if price_matches:
+                                # Находим максимальное число (полная цена), чтобы отсечь платежи по кредитам
+                                max_price_man = max(float(p) for p in price_matches)
+                                price = int(max_price_man * 10000)
 
-                            # 6. Год (Data Enrichment)
+                            # ПОИСК ГОДА
                             year = 0
                             year_match = re.search(r'(20\d{2}|19\d{2})\s*年', card_text)
                             if year_match:
                                 year = int(year_match.group(1))
 
-                            # 7. Пробег (Data Enrichment)
+                            # ПОИСК ПРОБЕГА
                             mileage = 0
                             mil_match_man = re.search(r'(\d+\.?\d*)\s*万km', card_text)
                             if mil_match_man:
@@ -137,7 +157,7 @@ class CarSensorScraper:
                                 if mil_match_km:
                                     mileage = int(mil_match_km.group(1))
 
-                            # 8. Цвет (Data Enrichment)
+                            # ПОИСК ЦВЕТА
                             color = "Other"
                             for jp_color, en_color in self.COLOR_MAP.items():
                                 if jp_color in card_text:
@@ -146,14 +166,14 @@ class CarSensorScraper:
 
                             # Сохраняем в словарь
                             cars_dict[clean_link] = {
-                                "brand": brand_name,  # Динамический бренд
-                                "model": model[:100],  # Ограничиваем длину
+                                "brand": brand_name,
+                                "model": model[:100],
                                 "year": year if year > 0 else 2020,
-                                "price": price if price > 0 else 1000000,
+                                "price": price if price > 0 else 500000,  # Если цена не найдена, ставим дефолт
                                 "color": color[:50],
-                                "mileage": mileage,  # НОВОЕ ПОЛЕ
+                                "mileage": mileage,
                                 "link": clean_link[:500],
-                                "image_url": image_url[:1000] if image_url else None,  # НОВОЕ ПОЛЕ
+                                "image_url": image_url[:1000] if image_url else None,
                                 "created_at": now,
                                 "updated_at": now,
                             }

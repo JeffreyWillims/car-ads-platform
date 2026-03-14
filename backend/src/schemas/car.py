@@ -13,4 +13,6 @@ class CarRead(BaseModel):
     link: str
     updated_at: datetime
 
+    ai_description: str | None = None
+
     model_config = ConfigDict(from_attributes=True)

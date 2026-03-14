@@ -11,7 +11,7 @@ from src.core.config import settings
 # ⚙️ ПОЛИТИКА УПРАВЛЕНИЯ СОЕДИНЕНИЯМИ
 # ==============================================================================
 
-# Эвристика: проверяем, запущен ли этот код внутри процесса Celery
+# Проверяем, запущен ли этот код внутри процесса Celery
 IS_CELERY = "celery" in sys.argv[0]
 
 # Если это Celery (фоновые воркеры-форки) -> отключаем пулинг (NullPool),
@@ -25,7 +25,7 @@ engine = create_async_engine(
     echo=False,
     poolclass=pool_class,
     # pool_pre_ping защищает FastAPI от "протухших" соединений.
-    # В случае с NullPool (для Celery) SQLAlchemy просто игнорирует этот флаг.
+    # В NullPool (для Celery) SQLAlchemy просто игнорирует этот флаг.
     pool_pre_ping=True,
 )
 

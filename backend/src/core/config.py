@@ -1,4 +1,3 @@
-# backend/src/core/config.py
 from pydantic import SecretStr, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -27,16 +26,15 @@ class Settings(BaseSettings):
     # ==========================================
     # 🤖 External Services (Bot & AI)
     # ==========================================
-    # Токен Telegram (обязателен)
+    # Токен Telegram
     BOT_TOKEN: SecretStr
 
     # Настройки LLM (Ollama).
-    # Задаем дефолты для Docker -> Host коммуникации.
-    LLM_API_KEY: str = "ollama"  # Заглушка, т.к. локальная Ollama не требует ключа
+    LLM_API_KEY: str = "ollama"  # Заглушка, локальная Ollama не требует ключа
     LLM_BASE_URL: str = "http://host.docker.internal:11434/v1"
     LLM_MODEL_NAME: str = "llama3"
 
-    # Legacy OpenAI (Оставляем опциональным для обратной совместимости)
+    # Legacy OpenAI
     OPENAI_API_KEY: SecretStr | None = None
 
     # ==========================================
@@ -66,8 +64,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        extra="ignore"  # Игнорировать лишние переменные (например, FRONTEND_PORT)
+        extra="ignore"  # Игнорируем лишние переменные
     )
 
-# Синглтон настроек
 settings = Settings()

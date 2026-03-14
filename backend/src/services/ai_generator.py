@@ -1,17 +1,15 @@
-# python 3.12+
 from openai import AsyncOpenAI
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import SecretStr
 
 # ==============================================================================
-# 1. CONFIGURATION LAYER (Pydantic V2 Strict Validation)
+# CONFIGURATION LAYER (Pydantic V2 Strict Validation)
 # ==============================================================================
 class AISettings(BaseSettings):
     llm_api_key: SecretStr
     llm_base_url: str
     llm_model_name: str
 
-    # FIX: Современный подход Pydantic V2 вместо устаревшего class Config
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore"
@@ -20,7 +18,7 @@ class AISettings(BaseSettings):
 ai_settings = AISettings()
 
 # ==============================================================================
-# 2. CLIENT INITIALIZATION (Thread-Safe Singleton)
+# CLIENT INITIALIZATION (Thread-Safe Singleton)
 # ==============================================================================
 ai_client = AsyncOpenAI(
     api_key=ai_settings.llm_api_key.get_secret_value(),
@@ -28,12 +26,12 @@ ai_client = AsyncOpenAI(
 )
 
 # ==============================================================================
-# 3. DOMAIN SERVICE LOGIC
+# DOMAIN SERVICE LOGIC
 # ==============================================================================
 async def generate_car_description(brand: str, model: str, year: int, mileage: int) -> str:
     """
-    O(1) Сетевой вызов. Генерация SEO-оптимизированного описания автомобиля.
-    Использует локальную модель через API, совместимое с OpenAI.
+    Сетевой вызов. Генерация SEO-оптимизированного описания автомобиля.
+    Используем локальную модель через API, совместимое с OpenAI.
     """
     prompt = (
         f"Ты опытный автодилер. Напиши короткое, продающее описание для "

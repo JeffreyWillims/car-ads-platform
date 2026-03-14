@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Car as CarIcon, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
+import { LogOut, Car as CarIcon, RefreshCw, ChevronLeft, ChevronRight, Sparkles } from 'lucide-react';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { apiClient } from '../api/axios';
 const JPY_TO_RUB = 0.62;
@@ -59,12 +59,13 @@ export default function Cars() {
                 <table>
                     <thead>
                         <tr>
-                            <th>Фото</th>   {/* НОВАЯ КОЛОНКА */}
+                            <th>Фото</th>
                             <th>ID</th>
+                            <th>AI Анализ</th> {/* 🔥 НОВАЯ КОЛОНКА */}
                             <th>Марка</th>
                             <th>Модель</th>
                             <th>Год</th>
-                            <th>Пробег</th> {/* НОВАЯ КОЛОНКА */}
+                            <th>Пробег</th>
                             <th>Цена (₽)</th>
                             <th>Цвет</th>
                             <th>Ссылка</th>
@@ -73,21 +74,21 @@ export default function Cars() {
                     <tbody>
                         {isLoading ? (
                             <tr>
-                                <td colSpan="9" style={{ textAlign: 'center', padding: '2rem' }}>
+                                <td colSpan="10" style={{ textAlign: 'center', padding: '2rem' }}>
                                     Загрузка данных...
                                 </td>
                             </tr>
                         ) : cars.length > 0 ? (
                             cars.map((car) => (
                                 <tr key={car.id}>
-                                    {/* Рендер картинки */}
+                                    {/* Фото */}
                                     <td>
                                         {car.image_url ? (
                                             <img
                                                 src={car.image_url}
                                                 alt={car.model}
                                                 style={{ width: '80px', height: '60px', objectFit: 'cover', borderRadius: '4px' }}
-                                                onError={(e) => { e.target.src = 'https://placehold.co/80x60?text=No+Photo' }} // Fallback если битая ссылка
+                                                onError={(e) => { e.target.src = 'https://placehold.co/80x60?text=No+Photo' }}
                                             />
                                         ) : (
                                             <div style={{ width: '80px', height: '60px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem' }}>
@@ -95,14 +96,32 @@ export default function Cars() {
                                             </div>
                                         )}
                                     </td>
+
                                     <td>{car.id}</td>
+
+                                    {/* 🔥 AI ОПИСАНИЕ */}
+                                    <td style={{ maxWidth: '200px' }}>
+                                        {car.ai_description ? (
+                                            <div title={car.ai_description} style={{ cursor: 'help' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#fbbf24', marginBottom: '4px' }}>
+                                                    <Sparkles size={14} />
+                                                    <span style={{ fontSize: '0.7rem', fontWeight: 'bold' }}>AI READY</span>
+                                                </div>
+                                                <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                    {car.ai_description}
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>Ожидает...</span>
+                                        )}
+                                    </td>
+
                                     <td>{car.brand}</td>
                                     <td>{car.model}</td>
                                     <td>{car.year}</td>
 
-                                    {/* Рендер пробега */}
                                     <td>
-                                        {car.mileage ? new Intl.NumberFormat('ru-RU').format(car.mileage) + ' км' : 'Без пробега'}
+                                        {car.mileage ? new Intl.NumberFormat('ru-RU').format(car.mileage) + ' км' : '-'}
                                     </td>
 
                                     <td>
@@ -125,7 +144,7 @@ export default function Cars() {
                             ))
                         ) : (
                             <tr>
-                                <td colSpan="9" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>
+                                <td colSpan="10" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>
                                     Объявлений больше нет.
                                 </td>
                             </tr>
@@ -134,7 +153,7 @@ export default function Cars() {
                 </table>
             </div>
 
-            {/* БЛОК ПАГИНАЦИИ */}
+            {/* ПАГИНАЦИЯ (остается без изменений) */}
             <div style={{
                 display: 'flex',
                 justifyContent: 'space-between',
@@ -160,7 +179,6 @@ export default function Cars() {
                     className="btn-secondary"
                     style={{ display: 'flex', gap: '5px', opacity: cars.length < limit ? 0.5 : 1 }}
                     onClick={() => setPage((old) => old + 1)}
-                    // Если пришло меньше машин, чем лимит (или 0), значит это последняя страница
                     disabled={cars.length < limit || isFetching}
                 >
                     Вперед <ChevronRight size={18} />

@@ -1,4 +1,3 @@
-# backend/src/repositories/car.py
 from typing import Any, Sequence
 from sqlalchemy import select, desc, update, func
 from sqlalchemy.dialects.postgresql import insert
@@ -12,10 +11,9 @@ class CarRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    # ИСПРАВЛЕНО: upsert_bulk -> bulk_upsert
     async def bulk_upsert(self, cars_data: list[dict[str, Any]]) -> None:
         """
-        Массовое сохранение машин (O(log N)).
+        Массовое сохранение машин
         """
         if not cars_data:
             return
@@ -45,7 +43,7 @@ class CarRepository:
         result = await self.session.execute(query)
         return result.scalars().all()
 
-    # --- Методы для AI (Оставляем как есть) ---
+    # --- Методы для AI ---
     async def get_cars_without_description(self, batch_size: int = 5) -> Sequence[Car]:
         query = (
             select(Car)
@@ -66,7 +64,7 @@ class CarRepository:
 
     async def search_cars(self, filters: Any, limit: int = 5) -> Sequence[Car]:
         """
-        O(N) Динамическая фильтрация автомобилей на основе AI-запроса.
+        Динамическая фильтрация автомобилей на основе AI-запроса.
         """
         query = select(Car)
 

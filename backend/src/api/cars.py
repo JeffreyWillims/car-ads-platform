@@ -17,7 +17,7 @@ router = APIRouter(tags=["Cars"])
     summary="Получить список автомобилей (Защищено)"
 )
 async def get_cars_list(
-    # Защита роута. Если токен невалиден, функция даже не начнет выполняться.
+    # Защита роута. Если токен невалиден, функция не начнет выполняться.
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_db)],
     limit: int = Query(20, ge=1, le=100, description="Количество авто на странице"),

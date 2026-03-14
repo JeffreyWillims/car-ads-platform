@@ -18,7 +18,7 @@ from src.models.user import User
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 ALGORITHM = "HS256"
 
-# Точка входа для Swagger UI (ссылается на роут в api/auth.py)
+# Точка входа для Swagger UI
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 
@@ -47,16 +47,15 @@ def create_access_token(subject: str | int | Any, expires_delta: timedelta | Non
     if expires_delta:
         expire = now + expires_delta
     else:
-        # Берем настройки из конфига (по умолчанию 60 минут)
+        # Берем настройки из конфига
         expire = now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
 
     to_encode = {
         "exp": expire,
         "iat": now,
-        "sub": str(subject)  # Сохраняем ID как строку
+        "sub": str(subject)
     }
 
-    # Получаем сырую строку из SecretStr
     secret = settings.SECRET_KEY.get_secret_value()
 
     encoded_jwt = jwt.encode(to_encode, secret, algorithm=ALGORITHM)

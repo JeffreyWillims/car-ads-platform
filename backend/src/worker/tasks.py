@@ -1,60 +1,38 @@
-# backend/src/worker/tasks.py
 import asyncio
 from celery.utils.log import get_task_logger
 
-# Импортируем конструкторы, но НЕ готовые объекты
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from sqlalchemy.pool import NullPool
-
 from src.core.celery_app import celery_app
 from src.scraper.engine import CarSensorScraper
+
+from src.core.database import AsyncSessionLocal
 from src.repositories.car import CarRepository
-from src.core.config import settings
+from src.services.ai_enrichment import AIEnrichmentService
 
 logger = get_task_logger(__name__)
 
 
+# ==============================================================================
+# SCRAPING PIPELINE
+# ==============================================================================
 async def _run_scraping_pipeline():
     """
-    Полностью изолированный пайплайн.
-    Создает свои собственные соединения с БД, чтобы избежать конфликта Event Loop.
+    Асинхронная корутина для сбора и сохранения данных.
     """
     scraper = CarSensorScraper()
     logger.info("Starting car scraper engine...")
 
-    # 1. Парсинг
+    # Парсим 1 страницу (для теста)
     cars_data = await scraper.scrape_cars(pages_per_brand=1)
 
     if not cars_data:
         logger.warning("No cars scraped. Aborting DB insert.")
         return "No data"
 
-    # =========================================================================
-    # 🛡️ SCOPED ENGINE PATTERN (Критически важно!)
-    # Мы создаем движок с нуля ЗДЕСЬ, а не импортируем его.
-    # Это гарантирует, что он привяжется к ТЕКУЩЕМУ Event Loop'у этой задачи.
-    # =========================================================================
-    local_engine = create_async_engine(
-        settings.database_url,
-        poolclass=NullPool,  # Обязательно для Celery (fork-safe)
-        echo=False
-    )
-
-    LocalSession = async_sessionmaker(
-        bind=local_engine,
-        class_=AsyncSession,
-        expire_on_commit=False
-    )
-
-    try:
-        # 2. Работа с БД через локальную сессию
-        async with LocalSession() as session:
-            repo = CarRepository(session)
-            logger.info(f"Upserting {len(cars_data)} cars into PostgreSQL...")
-            await repo.bulk_upsert(cars_data)
-    finally:
-        # 3. Чистка ресурсов (закрываем соединения)
-        await local_engine.dispose()
+    # Сохраняем в базу данных (Используем наш глобальный, но fork-safe сессионный мейкер)
+    async with AsyncSessionLocal() as session:
+        repo = CarRepository(session)
+        logger.info(f"Upserting {len(cars_data)} cars into PostgreSQL...")
+        await repo.bulk_upsert(cars_data)
 
     logger.info("Pipeline finished successfully.")
     return f"Upserted {len(cars_data)} cars"
@@ -63,20 +41,66 @@ async def _run_scraping_pipeline():
 @celery_app.task(name="scrape_cars_task", bind=True, max_retries=3)
 def scrape_cars_task(self):
     """
-    Синхронная точка входа. Управляет жизненным циклом Event Loop.
+    Синхронная обертка для Celery.
     """
-    # Создаем новый чистый цикл событий для этой задачи
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
     try:
-        result = loop.run_until_complete(_run_scraping_pipeline())
+        # asyncio.run() автоматически управляет Event Loop
+        result = asyncio.run(_run_scraping_pipeline())
+
+        # Скрапер успешно отработал -> Триггерим задачу ИИ обогащения
+        enrich_cars_with_ai_task.delay()
+
         return result
     except Exception as exc:
         logger.error(f"Scraper task failed: {exc}")
-        # Retry через 60 секунд при ошибке
         raise self.retry(exc=exc, countdown=60)
-    finally:
-        # Корректное завершение всех асинхронных генераторов и закрытие цикла
-        loop.run_until_complete(loop.shutdown_asyncgens())
-        loop.close()
+
+
+# ==============================================================================
+# AI ENRICHMENT PIPELINE
+# ==============================================================================
+async def _run_ai_enrichment():
+    """
+    Асинхронное ядро для обогащения данных с помощью Ollama/OpenAI.
+    """
+    logger.info("Starting AI Enrichment pipeline...")
+
+    async with AsyncSessionLocal() as session:
+        repo = CarRepository(session)
+        # Берем батч машин без описания (5 штук, чтобы не перегрузить LLM)
+        cars = await repo.get_cars_without_description(batch_size=5)
+
+        if not cars:
+            logger.info("No cars need AI enrichment at the moment.")
+            return "No cars to enrich"
+
+        enriched_count = 0
+        # Обрабатываем последовательно
+        for car in cars:
+            logger.info(f"Generating description for Car ID: {car.id} ({car.brand} {car.model})")
+
+            description = await AIEnrichmentService.generate_seo_description(
+                brand=car.brand,
+                model=car.model,
+                year=car.year,
+                price=car.price,
+                color=car.color
+            )
+
+            if description:
+                # Сохраняем результат в БД
+                await repo.update_description(car.id, description)
+                enriched_count += 1
+
+    return f"Successfully enriched {enriched_count} cars."
+
+
+@celery_app.task(name="enrich_cars_with_ai_task", bind=True, max_retries=3)
+def enrich_cars_with_ai_task(self):
+    """Синхронная обертка для Celery AI Task."""
+    try:
+        result = asyncio.run(_run_ai_enrichment())
+        return result
+    except Exception as exc:
+        logger.error(f"AI Enrichment task failed: {exc}")
+        raise self.retry(exc=exc, countdown=120)

@@ -11,13 +11,10 @@ from src.core.database import AsyncSessionLocal
 from src.repositories.car import CarRepository
 from src.bot.ai_service import analyze_user_query
 
-# Настройка логирования
+# Инициализация логирования и бота
 logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 
-# Инициализация бота
-# Если в config.py BOT_TOKEN это str, используем его напрямую.
-# Если это SecretStr, используем .get_secret_value().
-token = settings.BOT_TOKEN.get_secret_value() if hasattr(settings.BOT_TOKEN, "get_secret_value") else settings.BOT_TOKEN
+token = settings.BOT_TOKEN.get_secret_value()
 bot = Bot(token=token)
 dp = Dispatcher()
 
@@ -25,62 +22,71 @@ dp = Dispatcher()
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
     await message.answer(
-        "Привет! Я AI-бот 🤖. Напиши, какую машину ты ищешь (например: 'Найди красную Мазду до 2020 года')."
+        "Привет! Я AI-агент 🤖 по подбору авто из Японии.\n"
+        "Напиши мне запрос в свободной форме. Например:\n"
+        "<i>'Найди белую Хонду не старше 2020 года'</i>",
+        parse_mode=ParseMode.HTML
     )
 
 
 @dp.message(F.text)
 async def handle_text(message: types.Message):
-    status_msg = await message.answer("🤔 Анализирую твой запрос через нейросеть...")
+    # Показываем статус "печатает..."
+    await bot.send_chat_action(message.chat.id, "typing")
+    status_msg = await message.answer("🤔 Нейросеть анализирует запрос...")
 
-    # 1. AI парсит текст пользователя в структурированный Pydantic объект
+    # 1. AI парсит текст
     filters = await analyze_user_query(message.text)
 
     if not filters:
-        await status_msg.edit_text("Не смог понять параметры поиска. Попробуй иначе.")
+        await status_msg.edit_text("Не смог распознать параметры. Попробуй уточнить марку или цвет.")
         return
 
-    # 2. Обращаемся к слою данных (Clean Architecture)
+    # 2. Идем в базу данных
     async with AsyncSessionLocal() as session:
         repo = CarRepository(session)
-        cars = await repo.search_cars(filters)
+        # Берем только 5 машин, чтобы сообщение не превысило лимит Telegram
+        cars = await repo.search_cars(filters, limit=5)
 
     if not cars:
-        # Собираем красивую строку фильтров для ответа
-        filters_desc = []
-        if filters.brand: filters_desc.append(f"Марка: {filters.brand}")
-        if filters.model: filters_desc.append(f"Модель: {filters.model}")
-        if filters.min_year: filters_desc.append(f"От {filters.min_year} года")
-        if filters.max_price: filters_desc.append(f"До {filters.max_price} руб")
-        if filters.color: filters_desc.append(f"Цвет: {filters.color}")
+        # Собираем строку фильтров
+        filters_desc =[
+            f"Марка: {filters.brand}" if filters.brand else None,
+            f"Модель: {filters.model}" if filters.model else None,
+            f"От {filters.min_year} года" if filters.min_year else None,
+            f"Цвет: {filters.color}" if filters.color else None,
+        ]
+        filter_str = ", ".join(f for f in filters_desc if f) or "любые параметры"
 
-        filter_str = ", ".join(filters_desc) if filters_desc else "любые параметры"
-
-        await status_msg.edit_text(
-            f"По запросу ({filter_str}) ничего не найдено в базе 😔\nПопробуй поискать другую машину.")
+        await status_msg.edit_text(f"По запросу (<b>{filter_str}</b>) ничего не найдено в базе 😔", parse_mode=ParseMode.HTML)
         return
 
-    # 3. Формируем ответ
-    response_text = "Вот что я нашел в нашей базе:\n\n"
+    # 3. Рендеринг ответа
+    response_text = "<b>Вот что я нашел для тебя:</b>\n\n"
 
-    # ИСПРАВЛЕНО: Цикл for должен быть на том же уровне отступа, что и response_text
     for car in cars:
-        # ПРОВЕРКА НАЛИЧИЯ ПОЛЯ ai_description (Safeguard)
+        # Безопасное извлечение AI описания с ограничением по длине (100 символов)
         desc_text = ""
-        if hasattr(car, "ai_description") and car.ai_description:
+        if getattr(car, "ai_description", None):
             desc_text = f"💡 <i>{car.ai_description[:100]}...</i>\n"
+
+        # Форматирование чисел для красоты
+        price_formatted = f"¥ {car.price:,}"
+        mileage_text = f"🛣 {car.mileage:,} км | " if car.mileage else ""
 
         response_text += (
             f"🚗 <b>{car.brand} {car.model}</b>\n"
-            f"📅 Год: {car.year} | 💰 Цена: {car.price} JPY\n"
+            f"📅 Год: {car.year} | {mileage_text}💰 {price_formatted}\n"
             f"{desc_text}"
             f"🔗 <a href='{car.link}'>Смотреть на сайте</a>\n\n"
         )
 
-    await status_msg.edit_text(response_text, parse_mode=ParseMode.HTML)
+    await status_msg.edit_text(response_text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
 async def main():
+    # Удаляем вебхуки и старые апдейты, чтобы бот не спамил старыми сообщениями при старте
+    await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 

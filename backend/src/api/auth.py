@@ -65,7 +65,7 @@ async def login_for_access_token(
     result = await session.execute(query)
     user = result.scalar_one_or_none()
 
-    # Валидация пароля (с защитой от Timing Attack)
+    # Валидация пароля (защита от Timing Attack)
     if not user or not verify_password(form_data.password, user.hashed_password):
         # Если юзера нет, делаем фейковую проверку, чтобы время ответа было одинаковым
         if not user:

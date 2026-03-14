@@ -27,14 +27,9 @@ class CarScraper:
         soup = BeautifulSoup(html, "html.parser")
         cars = []
 
-        # ... (тут твой код парсинга) ...
-
-        # MOCK DATA FALLBACK
         if not cars:
             logger.warning("Генерирую MOCK-данные!")
             now = datetime.now(timezone.utc)
-
-            # ВАЖНО: Ключи должны совпадать с моделью Car (brand, model, price...)
             cars.append({
                 "brand": "Toyota",
                 "model": "Camry 2.5",
@@ -55,7 +50,6 @@ class CarScraper:
                 "created_at": now,
                 "updated_at": now,
             })
-
         return cars
 
     async def run(self, max_pages: int = 1) -> list[dict]:
